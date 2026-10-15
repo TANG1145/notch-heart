@@ -54,9 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                                           name: NSWorkspace.didWakeNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(spaceChanged),
                                                           name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
+        timer = Timer.scheduledTimer(timeInterval: 2, target: self, selector: #selector(refreshNow), userInfo: nil, repeats: true)
         refresh()
         if !demo && !defaults.bool(forKey: "hasSeenWelcome") {
             defaults.set(true, forKey: "hasSeenWelcome")
