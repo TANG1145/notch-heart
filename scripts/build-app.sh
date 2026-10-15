@@ -13,5 +13,5 @@ xattr -d com.apple.FinderInfo "$APP" 2>/dev/null || true
 codesign --force --sign - --identifier dev.tang.notchheart "$APP"
 codesign --verify --strict "$APP"
 ARCH="$(uname -m)"
-ditto -c -k --sequesterRsrc --keepParent "$APP" "$ROOT/dist/NotchHeart-macOS-$ARCH.zip"
+ditto --norsrc --noextattr -c -k --keepParent "$APP" "$ROOT/dist/NotchHeart-macOS-$ARCH.zip"
 echo "$APP"
