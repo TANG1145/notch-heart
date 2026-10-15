@@ -1,15 +1,39 @@
 import AppKit
 import HeartCore
 
+enum HeartBackground: String, CaseIterable {
+    case acrylic, transparent, liquidGlass
+    var title: String {
+        switch self {
+        case .acrylic: return "亚克力"
+        case .transparent: return "透明"
+        case .liquidGlass: return "液态玻璃"
+        }
+    }
+    static var supportsGlass: Bool {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) { return true }
+        #endif
+        return false
+    }
+}
+
+private final class HeartGlyphView: NSView {
+    weak var heart: HeartView?
+    override func draw(_ dirtyRect: NSRect) { heart?.drawGlyph(in: bounds) }
+}
+
 final class HeartPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
 final class HeartView: NSView {
-    var state: LikeState = .unknown { didSet { needsDisplay = true; updateAccessibility() } }
-    var busy = false { didSet { needsDisplay = true } }
-    var hovered = false { didSet { needsDisplay = true } }
+    var state: LikeState = .unknown { didSet { glyph.needsDisplay = true; updateAccessibility() } }
+    var busy = false { didSet { glyph.needsDisplay = true } }
+    var hovered = false { didSet { glyph.needsDisplay = true } }
+    var backgroundStyle: HeartBackground = .acrylic { didSet { rebuildBackground() } }
+    private let glyph = HeartGlyphView()
     var onClick: (() -> Void)?
     var onMenu: ((NSEvent) -> Void)?
     var onDragEnd: (() -> Void)?
@@ -22,11 +46,49 @@ final class HeartView: NSView {
         super.init(frame: frame)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
+        glyph.heart = self
+        rebuildBackground()
         updateAccessibility()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override var acceptsFirstResponder: Bool { false }
+    // Decorative material views must never consume clicks or drag gestures.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        bounds.contains(convert(point, from: superview)) ? self : nil
+    }
+
+    private func rebuildBackground() {
+        glyph.removeFromSuperview()
+        subviews.forEach { $0.removeFromSuperview() }
+        let contentFrame = bounds.insetBy(dx: 1, dy: 1)
+        glyph.autoresizingMask = [.width, .height]
+        #if compiler(>=6.2)
+        if backgroundStyle == .liquidGlass, #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView(frame: contentFrame)
+            glass.autoresizingMask = [.width, .height]
+            glass.style = .regular
+            glass.cornerRadius = 9
+            glyph.frame = NSRect(origin: .zero, size: contentFrame.size)
+            glass.contentView = glyph
+            addSubview(glass)
+            return
+        }
+        #endif
+        if backgroundStyle != .transparent {
+            let acrylic = NSVisualEffectView(frame: contentFrame)
+            acrylic.autoresizingMask = [.width, .height]
+            acrylic.material = .hudWindow
+            acrylic.blendingMode = .behindWindow
+            acrylic.state = .active
+            acrylic.wantsLayer = true
+            acrylic.layer?.cornerRadius = 9
+            acrylic.layer?.masksToBounds = true
+            addSubview(acrylic)
+        }
+        glyph.frame = bounds
+        addSubview(glyph)
+    }
 
     private func updateAccessibility() {
         setAccessibilityLabel(state == .liked ? "当前歌曲已喜欢" : "喜欢当前歌曲")
@@ -68,14 +130,7 @@ final class HeartView: NSView {
     }
     override func rightMouseDown(with event: NSEvent) { onMenu?(event) }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 9, yRadius: 9)
-        NSColor.windowBackgroundColor.withAlphaComponent(hovered ? 0.98 : 0.92).setFill()
-        shape.fill()
-        NSColor.separatorColor.withAlphaComponent(0.45).setStroke()
-        shape.lineWidth = 0.5
-        shape.stroke()
+    fileprivate func drawGlyph(in bounds: NSRect) {
         let name = busy ? "ellipsis" : state == .liked ? "heart.fill" : state == .unknown ? "heart.slash" : "heart"
         let color = state == .liked && !busy ? NSColor.systemRed : NSColor.labelColor
         let config = NSImage.SymbolConfiguration(pointSize: 17, weight: .medium)

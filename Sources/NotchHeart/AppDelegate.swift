@@ -27,6 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var snapshot = MusicSnapshot(message: "正在连接网易云音乐…", diagnostics: "Starting")
     private var settingsWindow: NSWindow?
     private var statusLabel: NSTextField?
+    private var backgroundPicker: NSPopUpButton?
+    private var backgroundStyle: HeartBackground {
+        HeartBackground(rawValue: defaults.string(forKey: "backgroundStyle") ?? "") ?? .acrylic
+    }
     private var mode: PositionMode { PositionMode(rawValue: defaults.string(forKey: "position") ?? "") ?? .notchLeft }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -42,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         heart = HeartView(frame: NSRect(origin: .zero, size: HeartLayout.size))
+        heart.backgroundStyle = backgroundStyle
         heart.onClick = { [weak self] in self?.likeCurrent() }
         heart.onMenu = { [weak self] event in self?.showMenu(event) }
         heart.onDragEnd = { [weak self] in self?.saveDraggedPosition() }
@@ -219,12 +224,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(left); menu.addItem(below)
         menu.addItem(item("也可以直接拖动红心调整位置", action: nil, enabled: false))
         menu.addItem(.separator())
+        let background = item("心形背景", action: nil)
+        let styles = NSMenu()
+        styles.autoenablesItems = false
+        for style in HeartBackground.allCases {
+            let option = item(style.title, action: #selector(changeBackground(_:)),
+                              enabled: style != .liquidGlass || HeartBackground.supportsGlass)
+            option.representedObject = style.rawValue
+            option.state = style == backgroundStyle ? .on : .off
+            styles.addItem(option)
+        }
+        background.submenu = styles
+        menu.addItem(background)
+        menu.addItem(.separator())
         menu.addItem(item("设置与连接状态…", action: #selector(showSettings)))
         menu.addItem(item("退出 Notch Heart", action: #selector(quit)))
         NSMenu.popUpContextMenu(menu, with: event, for: heart)
     }
 
     @objc private func positionLeft() { setPosition(.notchLeft) }
+    @objc private func changeBackground(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let style = HeartBackground(rawValue: raw) else { return }
+        setBackground(style)
+    }
+    @objc private func pickBackground(_ sender: NSPopUpButton) {
+        guard let raw = sender.selectedItem?.representedObject as? String, let style = HeartBackground(rawValue: raw) else { return }
+        setBackground(style)
+    }
+    private func setBackground(_ style: HeartBackground) {
+        guard style != .liquidGlass || HeartBackground.supportsGlass else { return }
+        defaults.set(style.rawValue, forKey: "backgroundStyle")
+        heart.backgroundStyle = style
+        if let index = HeartBackground.allCases.firstIndex(of: style) { backgroundPicker?.selectItem(at: index) }
+    }
     @objc private func positionBelow() { setPosition(.belowNotch) }
     private func setPosition(_ mode: PositionMode) {
         defaults.set(mode.rawValue, forKey: "position")
@@ -268,6 +300,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let position = NSStackView(views: [button("刘海左侧", #selector(positionLeft)), button("刘海下方", #selector(positionBelow))])
         position.spacing = 10
         stack.addArrangedSubview(position)
+        let picker = NSPopUpButton(frame: .zero, pullsDown: false)
+        picker.menu?.autoenablesItems = false
+        for style in HeartBackground.allCases {
+            picker.addItem(withTitle: style.title)
+            picker.lastItem?.representedObject = style.rawValue
+            picker.lastItem?.isEnabled = style != .liquidGlass || HeartBackground.supportsGlass
+        }
+        picker.selectItem(at: HeartBackground.allCases.firstIndex(of: backgroundStyle) ?? 0)
+        picker.target = self
+        picker.action = #selector(pickBackground(_:))
+        picker.setAccessibilityLabel("心形背景")
+        backgroundPicker = picker
+        let appearance = NSStackView(views: [NSTextField(labelWithString: "心形背景"), picker])
+        appearance.spacing = 12
+        stack.addArrangedSubview(appearance)
+        if !HeartBackground.supportsGlass {
+            let note = NSTextField(labelWithString: "液态玻璃需要 macOS 26；不可用时使用亚克力。")
+            note.font = .systemFont(ofSize: 12)
+            note.textColor = .secondaryLabelColor
+            stack.addArrangedSubview(note)
+        }
         let permissions = NSTextField(wrappingLabelWithString: "首次使用：在“系统设置 → 隐私与安全性 → 辅助功能”中允许 Notch Heart 控制网易云的“喜欢歌曲”菜单。无需屏幕录制权限，不读取账号或 Cookie。")
         stack.addArrangedSubview(permissions)
         permissions.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
